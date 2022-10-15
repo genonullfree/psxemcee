@@ -4,8 +4,8 @@ use rppal::gpio::Gpio;
 
 fn main() -> Result<(), Box<dyn Error>>{
 
-    let mut pin = Gpio::new()?.get(23u8)?.into_output();
-    pin.set_high();
+    let mut pin = Gpio::new()?.get(4u8)?.into_output();
+    pin.toggle();
 
     Ok(())
 }
