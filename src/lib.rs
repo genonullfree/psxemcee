@@ -24,15 +24,18 @@ pub fn toggle(input: u8) -> Result<(), Box<dyn Error>> {
 
 pub fn get_mc_status() -> Result<(), Box<dyn Error>> {
     let mut status = Vec::<u8>::new();
+    //let mut command = vec![0u8; 1000];
+    //command[0] = 0x81;
+    //command[1] = 0x53;
     let command = vec![0x81, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
     let mut pin = Gpio::new()?.get(SEL_GPIO)?.into_output();
 
-    pin.set_low();
+    pin.set_high();
     for c in command {
         status.push(send_receive(c)?);
     }
-    pin.set_high();
+    pin.set_low();
 
     println!("{:02x?}", status);
     Ok(())
@@ -43,16 +46,17 @@ pub fn send_receive(tx: u8) -> Result<u8, Box<dyn Error>> {
     let mut rx: u8 = 0;
     for i in 0..8 {
         write_cmd_bit((tx >> i) & 0x01)?;
-        thread::sleep(time::Duration::from_nanos(4000));
+        // Runs at 250Khz (*.5)
+        thread::sleep(time::Duration::from_millis(4));
         clock(Clk::Down)?;
-        // Runs at 250Khz
-        thread::sleep(time::Duration::from_nanos(4000));
+        thread::sleep(time::Duration::from_millis(4));
         clock(Clk::Up)?;
         let out = read_dat_bit()?;
         rx |= out << i;
     }
 
     wait_for_ack()?;
+    println!();
 
     Ok(rx)
 }
@@ -61,10 +65,11 @@ fn write_cmd_bit(tx: u8) -> Result<(), Box<dyn Error>> {
     let mut pin = Gpio::new()?.get(CMD_GPIO)?.into_output();
     if tx > 0 {
         pin.set_high();
+        print!("1");
     } else {
         pin.set_low();
+        print!("0");
     }
-
     Ok(())
 }
 
@@ -88,7 +93,7 @@ fn wait_for_ack() -> Result<(), Box<dyn Error>> {
 
     let timeout = time::Instant::now();
     loop {
-        if pin.is_low() {
+        if pin.is_high() {
             break;
         }
         if timeout.elapsed() > time::Duration::from_secs(1) {
