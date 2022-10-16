@@ -1,11 +1,8 @@
-use std::error::Error;
-
-use rppal::gpio::Gpio;
+use psxmcrw::toggle;
 
 fn main() -> Result<(), Box<dyn Error>>{
 
-    let mut pin = Gpio::new()?.get(4u8)?.into_output();
-    pin.toggle();
+    toggle(4u8)?;
 
     Ok(())
 }
