@@ -1,8 +1,7 @@
-use psxmcrw::toggle;
+use std::error::Error;
 
-fn main() -> Result<(), Box<dyn Error>>{
+use psxmcrw::get_mc_status;
 
-    toggle(4u8)?;
-
-    Ok(())
+fn main() -> Result<(), Box<dyn Error>> {
+    get_mc_status()
 }
