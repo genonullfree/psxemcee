@@ -72,8 +72,6 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     for i in 0..8 {
         thread::sleep(time::Duration::from_nanos(2000));
         clk.set_low();
-        let out = dat.read() as u8;
-        rx |= out << i;
         if (transmit >> i) & 0x01 == 0x01 {
             tx.set_high();
         } else {
@@ -81,6 +79,8 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
         }
         thread::sleep(time::Duration::from_nanos(2000));
         clk.set_high();
+        let out = dat.read() as u8;
+        rx |= out << i;
         // Runs at 250Khz (*.5)
     }
 
