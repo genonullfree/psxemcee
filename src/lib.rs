@@ -40,42 +40,68 @@ pub fn get_mc_status() -> Result<(), Box<dyn Error>> {
     pin.set_high();
     thread::sleep(time::Duration::from_millis(20));
     pin.set_low();
+    let mut count = 0;
     for c in command {
-        status.push(send_receive(c)?);
+        match send_receive(c)? {
+            Some(s) => {
+                status.push(s);
+                count = 0;
+            },
+            None => count += 1,
+        };
+        if count > 1 {
+            break;
+        }
     }
     //pin.set_low();
 
     // debug
-    println!("{:02x?}", status);
+    println!("[{}]:{:02x?}", status.len(), status);
     Ok(())
 }
 
-pub fn send_receive(transmit: u8) -> Result<u8, Box<dyn Error>> {
+pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
     let mut tx = Gpio::new()?.get(CMD_GPIO)?.into_output();
     let dat = Gpio::new()?.get(DAT_GPIO)?.into_input();
+    let ack = Gpio::new()?.get(ACK_GPIO)?.into_input();
     // LSB
     let mut rx: u8 = 0;
-    clk.set_high();
+        clk.set_high();
+        thread::sleep(time::Duration::from_nanos(2000));
     for i in 0..8 {
+        thread::sleep(time::Duration::from_nanos(2000));
+        clk.set_low();
+        let out = dat.read() as u8;
+        rx |= out << i;
         if (transmit >> i) & 0x01 == 0x01 {
             tx.set_high();
         } else {
             tx.set_low();
         }
-        // Runs at 250Khz (*.5)
-        thread::sleep(time::Duration::from_nanos(2000));
-        clk.set_low();
         thread::sleep(time::Duration::from_nanos(2000));
         clk.set_high();
-        let out = dat.read() as u8;
-        rx |= out << i;
+        // Runs at 250Khz (*.5)
     }
 
-    wait_for_ack()?;
+    //wait_for_ack()?;
+
+    let timeout = time::Instant::now();
+    loop {
+        if ack.is_low() {
+            break;
+        }
+
+        // TODO fail with an actual error
+        if timeout.elapsed() > time::Duration::from_micros(1500) {
+            //println!("Timeout!");
+            return Ok(None)
+            //break;
+        }
+    }
     //println!();
 
-    Ok(rx)
+    Ok(Some(rx))
 }
 
 fn write_cmd_bit(tx: u8) -> Result<(), Box<dyn Error>> {
@@ -111,7 +137,6 @@ fn wait_for_ack() -> Result<(), Box<dyn Error>> {
     let pin = Gpio::new()?.get(ACK_GPIO)?.into_input();
 
     let timeout = time::Instant::now();
-    let mut count = 0;
     loop {
         if pin.is_low() {
             break;
@@ -120,17 +145,6 @@ fn wait_for_ack() -> Result<(), Box<dyn Error>> {
         // TODO fail with an actual error
         if timeout.elapsed() > time::Duration::from_micros(150) {
             //println!("Timeout!");
-            return Ok(())
-        }
-    }
-
-    loop {
-        if pin.is_high() {
-            break;
-        }
-
-        if timeout.elapsed() > time::Duration::from_micros(150) {
-            println!("Timeout2!");
             return Ok(())
         }
     }
