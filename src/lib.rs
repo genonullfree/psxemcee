@@ -16,23 +16,79 @@ const CLK_GPIO: u8 = 3;
 const ACK_GPIO: u8 = 4;
 */
 
-pub enum Clk {
-    Up,
-    Down,
+const STATUS_CMD: [u8; 2] = [0x81, 0x53];
+const READ_CMD: [u8; 2] = [0x81, 0x52];
+const WRITE_CMD: [u8; 2] = [0x81, 0x57];
+
+const STATUS_CMD_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
+const READ_CMD_START: [u8; 6] = [0x5a, 0x5d, 0x00, 0x00, 0x5c, 0x5d];
+const WRITE_CMD_START: [u8; 2] = [0x5a, 0x5d];
+
+// TODO this is not a good method...
+const NON_SONY_MC_TRAILER: [u8; 5] = [0x5c; 5];
+
+#[derive(Debug, PartialEq)]
+enum Command {
+    Status,
+    Read,
+    Write,
 }
 
-pub fn get_mc_status() -> Result<(), Box<dyn Error>> {
+pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
+    let mut data = cmd_raw_frame(Command::Read, frame)?;
+
+    data.remove(0);
+
+    let idx = match find_data_index(&READ_CMD_START, &data) {
+        Some(i) => i,
+        None => return Ok(data), // TODO This is an error case :(
+    };
+
+    // Remove header info
+    let data = data[idx + READ_CMD_START.len() + 3..].to_vec();
+
+    // Remove trailer info
+    let idx = match find_data_index(&NON_SONY_MC_TRAILER, &data) {
+        Some(i) => i,
+        None => return Ok(data), // TODO This is an error case :(
+    };
+    let data = data[..idx - 1].to_vec();
+
+    Ok(data)
+}
+
+fn find_data_index(pattern: &[u8], data: &[u8]) -> Option<usize> {
+    let mut idx = 0;
+    for (i, d) in data.iter().enumerate() {
+        if pattern[idx] == *d {
+            idx += 1;
+            if idx >= pattern.len() {
+                return Some(i - idx);
+            }
+        } else {
+            idx = 0;
+        }
+    }
+    return None;
+}
+
+fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut status = Vec::<u8>::new();
     let mut command = vec![0u8; 256];
-    command[0] = 0x81;
-    command[1] = 0x52;
-    //let command = vec![0x81, 0x53, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    match com {
+        Command::Status => command[..2].copy_from_slice(&STATUS_CMD),
+        Command::Read => command[..2].copy_from_slice(&READ_CMD),
+        Command::Write => command[..2].copy_from_slice(&WRITE_CMD),
+    };
+    if com != Command::Status {
+        command[4..6].copy_from_slice(&frame.to_be_bytes());
+    }
 
-    let mut pin = Gpio::new()?.get(SEL_GPIO)?.into_output();
+    let mut sel = Gpio::new()?.get(SEL_GPIO)?.into_output();
 
-    pin.set_high();
+    sel.set_high();
     thread::sleep(time::Duration::from_millis(20));
-    pin.set_low();
+    sel.set_low();
     let mut count = 0;
     for c in command {
         match send_receive(c)? {
@@ -47,11 +103,7 @@ pub fn get_mc_status() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // TODO: Throw away first byte of garbage
-
-    // debug
-    println!("[{}]:{:02x?}", status.len(), status);
-    Ok(())
+    Ok(status)
 }
 
 pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
