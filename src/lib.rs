@@ -84,7 +84,7 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
         // Runs at 250Khz (*.5)
     }
 
-    //wait_for_ack()?;
+    tx.set_low();
 
     let timeout = time::Instant::now();
     loop {
@@ -133,7 +133,7 @@ fn clock(dir: Clk) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn wait_for_ack() -> Result<(), Box<dyn Error>> {
+fn wait_for_ack() -> Result<bool, Box<dyn Error>> {
     let pin = Gpio::new()?.get(ACK_GPIO)?.into_input();
 
     let timeout = time::Instant::now();
@@ -145,9 +145,9 @@ fn wait_for_ack() -> Result<(), Box<dyn Error>> {
         // TODO fail with an actual error
         if timeout.elapsed() > time::Duration::from_micros(150) {
             //println!("Timeout!");
-            return Ok(())
+            return Ok(false)
         }
     }
 
-    Ok(())
+    Ok(true)
 }
