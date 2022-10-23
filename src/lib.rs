@@ -21,7 +21,7 @@ const READ_CMD: [u8; 2] = [0x81, 0x52];
 const WRITE_CMD: [u8; 2] = [0x81, 0x57];
 
 const STATUS_CMD_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
-const READ_CMD_START: [u8; 6] = [0x5a, 0x5d, 0x00, 0x00, 0x5c, 0x5d];
+const READ_CMD_START: [u8; 2] = [0x5c, 0x5d];
 const WRITE_CMD_START: [u8; 2] = [0x5a, 0x5d];
 
 // TODO this is not a good method...
