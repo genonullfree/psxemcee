@@ -34,6 +34,18 @@ enum Command {
     Write,
 }
 
+// TODO Implement errors
+
+pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+    let mut data = Vec::<Vec<u8>>::new();
+
+    for i in 0..0x400 {
+        data.push(read_frame(i)?);
+    }
+
+    Ok(data)
+}
+
 pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut data = cmd_raw_frame(Command::Read, frame)?;
 
@@ -47,6 +59,9 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     // Remove header info
     let data = data[idx + READ_CMD_START.len() + 3..].to_vec();
 
+    // It would probably just be better to count 128 from the beginning
+    // and trim there...
+    //
     // Remove trailer info
     let idx = match find_data_index(&NON_SONY_MC_TRAILER, &data) {
         Some(i) => i,
