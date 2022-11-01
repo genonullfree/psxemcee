@@ -124,7 +124,7 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
 pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
     let mut tx = Gpio::new()?.get(CMD_GPIO)?.into_output();
-    let dat = Gpio::new()?.get(DAT_GPIO)?.into_input();
+    let dat = Gpio::new()?.get(DAT_GPIO)?.into_input_pullup();
     let ack = Gpio::new()?.get(ACK_GPIO)?.into_input();
     // LSB
     let mut rx: u8 = 0;
