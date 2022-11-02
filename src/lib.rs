@@ -84,9 +84,11 @@ fn find_data_index(pattern: &[u8], data: &[u8]) -> Option<usize> {
             idx = 0;
         }
     }
-    return None;
+
+    None
 }
 
+// TODO This needs an Option<&[u8]> for Command::Write frame data
 fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut status = Vec::<u8>::new();
     let mut command = vec![0u8; 256];
