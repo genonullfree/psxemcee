@@ -8,14 +8,6 @@ const SEL_GPIO: u8 = 17;
 const CLK_GPIO: u8 = 27;
 const ACK_GPIO: u8 = 22;
 
-/*
-const CMD_GPIO: u8 = 14;
-const DAT_GPIO: u8 = 15;
-const SEL_GPIO: u8 = 2;
-const CLK_GPIO: u8 = 3;
-const ACK_GPIO: u8 = 4;
-*/
-
 const STATUS_CMD: [u8; 2] = [0x81, 0x53];
 const READ_CMD: [u8; 2] = [0x81, 0x52];
 const WRITE_CMD: [u8; 2] = [0x81, 0x57];
@@ -24,8 +16,11 @@ const STATUS_CMD_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
 const READ_CMD_START: [u8; 2] = [0x5c, 0x5d];
 const WRITE_CMD_START: [u8; 2] = [0x5a, 0x5d];
 
-// TODO this is not a good method...
-const NON_SONY_MC_TRAILER: [u8; 5] = [0x5c; 5];
+const CMD_TRAILER: u8 = 0x47;
+
+const CHKSUM_FRAME_LEN: usize = 130;
+const CHKSUM_OFS: usize = 130;
+const FRAME_STATUS_OFS: usize = 131;
 
 #[derive(Debug, PartialEq)]
 enum Command {
@@ -35,6 +30,15 @@ enum Command {
 }
 
 // TODO Implement errors
+
+/// Calculate the Command checksum.
+pub fn calc_checksum(d: &[u8]) -> u8 {
+    let mut c = 0;
+    for i in d.iter() {
+        c ^= *i;
+    }
+    c
+}
 
 pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let mut data = Vec::<Vec<u8>>::new();
@@ -47,38 +51,62 @@ pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
 }
 
 pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
-    let mut data = cmd_raw_frame(Command::Read, frame)?;
+    let mut retry = 3;
 
-    data.remove(0);
+    loop {
+        // Try up to 3 times to read a frame, then give up
+        if retry == 0 {
+            // TODO: Return an error value
+            return Ok(Vec::new());
+        } else {
+            retry -= 1;
+        }
 
-    let idx = match find_data_index(&READ_CMD_START, &data) {
-        Some(i) => i,
-        None => return Ok(data), // TODO This is an error case :(
-    };
+        // Execute a Read command
+        let mut data = cmd_raw_frame(Command::Read, frame)?;
 
-    // Remove header info
-    let data = data[idx + READ_CMD_START.len() + 3..].to_vec();
+        // Remvoe the garbage byte
+        data.remove(0);
 
-    // It would probably just be better to count 128 from the beginning
-    // and trim there...
-    //
-    // Remove trailer info
-    let idx = match find_data_index(&NON_SONY_MC_TRAILER, &data) {
-        Some(i) => i,
-        None => return Ok(data), // TODO This is an error case :(
-    };
-    let data = data[..idx - 1].to_vec();
+        // Find the beginning of the data
+        let ofs = match find_haystack_end(&READ_CMD_START, &data) {
+            Some(i) => i,
+            None => continue,
+        };
 
-    Ok(data)
+        // Calculate checksum
+        let frame = &data[ofs..ofs + CHKSUM_FRAME_LEN];
+        let checksum = data[ofs + CHKSUM_OFS];
+        let calc = calc_checksum(frame);
+        if checksum != calc {
+            println!("Err: calc: {} expected: {}", calc, checksum);
+            continue;
+        }
+
+        // Verify we received a good 'G' status trailer
+        if data[ofs + FRAME_STATUS_OFS] != CMD_TRAILER {
+            println!(
+                "Err: trailer: {} expected: {}",
+                data[ofs + 130],
+                CMD_TRAILER
+            );
+            continue;
+        }
+
+        // Remove frame number
+        let data = frame[2..].to_vec();
+
+        return Ok(data);
+    }
 }
 
-fn find_data_index(pattern: &[u8], data: &[u8]) -> Option<usize> {
+fn find_haystack_end(pattern: &[u8], data: &[u8]) -> Option<usize> {
     let mut idx = 0;
     for (i, d) in data.iter().enumerate() {
         if pattern[idx] == *d {
             idx += 1;
             if idx >= pattern.len() {
-                return Some(i - idx);
+                return Some(i + 1);
             }
         } else {
             idx = 0;
