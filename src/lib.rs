@@ -2,26 +2,42 @@ use rppal::gpio::Gpio;
 use std::error::Error;
 use std::{thread, time};
 
+/// Data GPIO pin
 const DAT_GPIO: u8 = 23;
+/// Command GPIO pin
 const CMD_GPIO: u8 = 24;
+/// Chip Select GPIO pin
 const SEL_GPIO: u8 = 17;
+/// Clock GPIO pin
 const CLK_GPIO: u8 = 27;
+/// Acknowledge GPIO pin
 const ACK_GPIO: u8 = 22;
 
+/// Status command sequence
 const STATUS_CMD: [u8; 2] = [0x81, 0x53];
+/// Read command sequence
 const READ_CMD: [u8; 2] = [0x81, 0x52];
+/// Write command sequence
 const WRITE_CMD: [u8; 2] = [0x81, 0x57];
 
-const STATUS_CMD_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
-const READ_CMD_START: [u8; 2] = [0x5c, 0x5d];
-const WRITE_CMD_START: [u8; 2] = [0x5a, 0x5d];
+/// Header for status response
+const STATUS_RSP_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
+/// Header for read response
+const READ_RSP_START: [u8; 2] = [0x5c, 0x5d];
+/// Header for write response
+const WRITE_RSP_START: [u8; 2] = [0x5a, 0x5d];
 
-const CMD_TRAILER: u8 = 0x47;
-
+/// Length of frame for checksum calculation
 const CHKSUM_FRAME_LEN: usize = 130;
+/// Checksum location offset
 const CHKSUM_OFS: usize = 130;
+
+/// Command 'G'ood marker
+const FRAME_STATUS: u8 = 0x47;
+/// Frame status offset
 const FRAME_STATUS_OFS: usize = 131;
 
+/// Available commands for PS1 memory cards
 #[derive(Debug, PartialEq)]
 enum Command {
     Status,
@@ -40,9 +56,11 @@ pub fn calc_checksum(d: &[u8]) -> u8 {
     c
 }
 
+/// Read all frames from the memory card
 pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     let mut data = Vec::<Vec<u8>>::new();
 
+    // Read frames 0 through 1023
     for i in 0..0x400 {
         data.push(read_frame(i)?);
     }
@@ -50,13 +68,19 @@ pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
     Ok(data)
 }
 
+/// Read a specific frame
 pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut retry = 3;
+
+    for i in 0..100 {
+        let _ = send_receive(0x00);
+    }
 
     loop {
         // Try up to 3 times to read a frame, then give up
         if retry == 0 {
             // TODO: Return an error value
+            println!("Err: retry limit reached!");
             return Ok(Vec::new());
         } else {
             retry -= 1;
@@ -64,14 +88,22 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
 
         // Execute a Read command
         let mut data = cmd_raw_frame(Command::Read, frame)?;
+        if data.len() <= 128 {
+            println!("Err: len is too short: {}", data.len());
+            continue;
+        }
 
         // Remvoe the garbage byte
         data.remove(0);
 
+        println!("{:02x?}", data);
         // Find the beginning of the data
-        let ofs = match find_haystack_end(&READ_CMD_START, &data) {
+        let ofs = match find_haystack_end(&READ_RSP_START, &data) {
             Some(i) => i,
-            None => continue,
+            None => {
+                println!("Err: Couldnt find the response start");
+                continue;
+            },
         };
 
         // Calculate checksum
@@ -84,11 +116,11 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
         }
 
         // Verify we received a good 'G' status trailer
-        if data[ofs + FRAME_STATUS_OFS] != CMD_TRAILER {
+        if data[ofs + FRAME_STATUS_OFS] != FRAME_STATUS {
             println!(
                 "Err: trailer: {} expected: {}",
-                data[ofs + 130],
-                CMD_TRAILER
+                data[ofs + FRAME_STATUS_OFS],
+                FRAME_STATUS
             );
             continue;
         }
@@ -100,12 +132,13 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     }
 }
 
-fn find_haystack_end(pattern: &[u8], data: &[u8]) -> Option<usize> {
+// Seek to the end of a needle in the frame
+fn find_haystack_end(needle: &[u8], data: &[u8]) -> Option<usize> {
     let mut idx = 0;
     for (i, d) in data.iter().enumerate() {
-        if pattern[idx] == *d {
+        if needle[idx] == *d {
             idx += 1;
-            if idx >= pattern.len() {
+            if idx >= needle.len() {
                 return Some(i + 1);
             }
         } else {
@@ -119,21 +152,29 @@ fn find_haystack_end(pattern: &[u8], data: &[u8]) -> Option<usize> {
 // TODO This needs an Option<&[u8]> for Command::Write frame data
 fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut status = Vec::<u8>::new();
+    // TODO: Fix this length
     let mut command = vec![0u8; 256];
+
+    // Insert the proper command sequence
     match com {
         Command::Status => command[..2].copy_from_slice(&STATUS_CMD),
         Command::Read => command[..2].copy_from_slice(&READ_CMD),
         Command::Write => command[..2].copy_from_slice(&WRITE_CMD),
     };
+
+    // If Read or Write, copy the frame address to the command
     if com != Command::Status {
         command[4..6].copy_from_slice(&frame.to_be_bytes());
     }
 
+    // Trigger the Chip Select high then low to select the card
     let mut sel = Gpio::new()?.get(SEL_GPIO)?.into_output();
-
     sel.set_high();
     thread::sleep(time::Duration::from_millis(20));
     sel.set_low();
+
+    // Send the command, one byte at a time
+    // TODO: Fix this to send them all
     let mut count = 0;
     for c in command {
         match send_receive(c)? {
@@ -151,31 +192,40 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     Ok(status)
 }
 
+/// Send and receive 1 byte of data, LSB first
 pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
-    let mut tx = Gpio::new()?.get(CMD_GPIO)?.into_output();
+    let mut cmd = Gpio::new()?.get(CMD_GPIO)?.into_output();
     let dat = Gpio::new()?.get(DAT_GPIO)?.into_input_pullup();
-    let ack = Gpio::new()?.get(ACK_GPIO)?.into_input();
-    // LSB
+    let ack = Gpio::new()?.get(ACK_GPIO)?.into_input_pullup();
+
+    // Byte for storing response data from DAT
     let mut rx: u8 = 0;
+
+    // The clock should start high
     clk.set_high();
     thread::sleep(time::Duration::from_nanos(2000));
     for i in 0..8 {
+        // Write data to the card when the clock is low
         thread::sleep(time::Duration::from_nanos(2000));
         clk.set_low();
         if (transmit >> i) & 0x01 == 0x01 {
-            tx.set_high();
+            cmd.set_high();
         } else {
-            tx.set_low();
+            cmd.set_low();
         }
+
+        // Read data from the card when the clock is high
         thread::sleep(time::Duration::from_nanos(2000));
         clk.set_high();
         let out = dat.read() as u8;
         rx |= out << i;
     }
 
-    tx.set_low();
+    // Set CMD to a known state of low
+    cmd.set_low();
 
+    // Wait for ACK, fail if timeout is triggered first
     let timeout = time::Instant::now();
     loop {
         if ack.is_low() {
