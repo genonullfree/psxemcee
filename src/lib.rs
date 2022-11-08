@@ -47,6 +47,18 @@ enum Command {
 
 // TODO Implement errors
 
+fn cleanup_data(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::<u8>::new();
+
+    for (i, d) in data.iter().enumerate() {
+        if i+1 >= data.len() {
+            break;
+        }
+        out.push(d << 1 | (data[i+1] & 0x80u8) >> 7);
+    }
+    out
+}
+
 /// Calculate the Command checksum.
 pub fn calc_checksum(d: &[u8]) -> u8 {
     let mut c = 0;
@@ -73,7 +85,7 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut retry = 3;
 
     for i in 0..100 {
-        let _ = send_receive(0x00);
+        //let _ = send_receive(0xff);
     }
 
     loop {
@@ -88,6 +100,9 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
 
         // Execute a Read command
         let mut data = cmd_raw_frame(Command::Read, frame)?;
+        println!("{:02x?}", data);
+        let mut data = cleanup_data(&data);
+        println!("{:02x?}", data);
         if data.len() <= 128 {
             println!("Err: len is too short: {}", data.len());
             continue;
@@ -197,17 +212,17 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
     let mut cmd = Gpio::new()?.get(CMD_GPIO)?.into_output();
     let dat = Gpio::new()?.get(DAT_GPIO)?.into_input_pullup();
-    let ack = Gpio::new()?.get(ACK_GPIO)?.into_input_pullup();
+    let ack = Gpio::new()?.get(ACK_GPIO)?.into_input();
 
     // Byte for storing response data from DAT
     let mut rx: u8 = 0;
 
     // The clock should start high
     clk.set_high();
-    thread::sleep(time::Duration::from_nanos(2000));
+    thread::sleep(time::Duration::from_nanos(200));
     for i in 0..8 {
         // Write data to the card when the clock is low
-        thread::sleep(time::Duration::from_nanos(2000));
+        thread::sleep(time::Duration::from_nanos(200));
         clk.set_low();
         if (transmit >> i) & 0x01 == 0x01 {
             cmd.set_high();
@@ -216,14 +231,14 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
         }
 
         // Read data from the card when the clock is high
-        thread::sleep(time::Duration::from_nanos(2000));
+        thread::sleep(time::Duration::from_nanos(200));
         clk.set_high();
         let out = dat.read() as u8;
         rx |= out << i;
     }
 
     // Set CMD to a known state of low
-    cmd.set_low();
+    //cmd.set_low();
 
     // Wait for ACK, fail if timeout is triggered first
     let timeout = time::Instant::now();
