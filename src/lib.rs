@@ -101,8 +101,6 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
         // Execute a Read command
         let mut data = cmd_raw_frame(Command::Read, frame)?;
         println!("{:02x?}", data);
-        let mut data = cleanup_data(&data);
-        println!("{:02x?}", data);
         if data.len() <= 128 {
             println!("Err: len is too short: {}", data.len());
             continue;
@@ -194,7 +192,13 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     for c in command {
         match send_receive(c)? {
             Some(s) => {
-                status.push(s);
+                if status.len() > 0 {
+                    let mut prev = status.pop().unwrap();
+                    prev |= (s >> 7) & 0x1;
+                    status.push(prev);
+                }
+                let curr = s << 1;
+                status.push(curr);
                 count = 0;
             }
             None => count += 1,
@@ -218,11 +222,11 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
     let mut rx: u8 = 0;
 
     // The clock should start high
-    clk.set_high();
-    thread::sleep(time::Duration::from_nanos(200));
+    //clk.set_high();
+    thread::sleep(time::Duration::from_nanos(2000));
     for i in 0..8 {
         // Write data to the card when the clock is low
-        thread::sleep(time::Duration::from_nanos(200));
+        thread::sleep(time::Duration::from_nanos(2000));
         clk.set_low();
         if (transmit >> i) & 0x01 == 0x01 {
             cmd.set_high();
@@ -231,14 +235,14 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
         }
 
         // Read data from the card when the clock is high
-        thread::sleep(time::Duration::from_nanos(200));
+        thread::sleep(time::Duration::from_nanos(2000));
         clk.set_high();
-        let out = dat.read() as u8;
+        let out = (dat.read() as u8) & 0x01;
         rx |= out << i;
     }
 
     // Set CMD to a known state of low
-    //cmd.set_low();
+    //clk.set_low();
 
     // Wait for ACK, fail if timeout is triggered first
     let timeout = time::Instant::now();
