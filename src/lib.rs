@@ -192,13 +192,14 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     for c in command {
         match send_receive(c)? {
             Some(s) => {
-                if status.len() > 0 {
+                /*if status.len() > 0 {
                     let mut prev = status.pop().unwrap();
                     prev |= (s >> 7) & 0x1;
                     status.push(prev);
                 }
                 let curr = s << 1;
-                status.push(curr);
+                status.push(curr);*/
+                status.push(s);
                 count = 0;
             }
             None => count += 1,
@@ -241,6 +242,7 @@ pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
         rx |= out << i;
     }
 
+    //thread::sleep(time::Duration::from_nanos(2000));
     // Set CMD to a known state of low
     //clk.set_low();
 
