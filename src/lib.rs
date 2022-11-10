@@ -51,10 +51,10 @@ fn cleanup_data(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::<u8>::new();
 
     for (i, d) in data.iter().enumerate() {
-        if i+1 >= data.len() {
+        if i + 1 >= data.len() {
             break;
         }
-        out.push(d << 1 | (data[i+1] & 0x80u8) >> 7);
+        out.push(d << 1 | (data[i + 1] & 0x80u8) >> 7);
     }
     out
 }
@@ -116,7 +116,7 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
             None => {
                 println!("Err: Couldnt find the response start");
                 continue;
-            },
+            }
         };
 
         // Calculate checksum
@@ -186,77 +186,63 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
     thread::sleep(time::Duration::from_millis(20));
     sel.set_low();
 
-    // Send the command, one byte at a time
-    // TODO: Fix this to send them all
-    let mut count = 0;
-    for c in command {
-        match send_receive(c)? {
-            Some(s) => {
-                /*if status.len() > 0 {
-                    let mut prev = status.pop().unwrap();
-                    prev |= (s >> 7) & 0x1;
-                    status.push(prev);
-                }
-                let curr = s << 1;
-                status.push(curr);*/
-                status.push(s);
-                count = 0;
-            }
-            None => count += 1,
-        };
-        if count > 1 {
-            break;
-        }
-    }
+    // Send the command buffer
+    let status = send_receive(&command)?;
 
     Ok(status)
 }
 
-/// Send and receive 1 byte of data, LSB first
-pub fn send_receive(transmit: u8) -> Result<Option<u8>, Box<dyn Error>> {
+/// Send and receive many bytes of data, LSB first
+pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
     let mut cmd = Gpio::new()?.get(CMD_GPIO)?.into_output();
     let dat = Gpio::new()?.get(DAT_GPIO)?.into_input_pullup();
     let ack = Gpio::new()?.get(ACK_GPIO)?.into_input();
 
-    // Byte for storing response data from DAT
-    let mut rx: u8 = 0;
+    let mut output = Vec::<u8>::new();
 
     // The clock should start high
     //clk.set_high();
     thread::sleep(time::Duration::from_nanos(2000));
-    for i in 0..8 {
-        // Write data to the card when the clock is low
-        thread::sleep(time::Duration::from_nanos(2000));
-        clk.set_low();
-        if (transmit >> i) & 0x01 == 0x01 {
-            cmd.set_high();
-        } else {
-            cmd.set_low();
+    'transmit: for transmit in input {
+        // Byte for storing response data from DAT
+        let mut rx: u8 = 0;
+
+        for i in 0..8 {
+            // Write data to the card when the clock is low
+            thread::sleep(time::Duration::from_nanos(2000));
+            clk.set_low();
+            if (transmit >> i) & 0x01 == 0x01 {
+                cmd.set_high();
+            } else {
+                cmd.set_low();
+            }
+
+            // Read data from the card when the clock is high
+            thread::sleep(time::Duration::from_nanos(2000));
+            clk.set_high();
+            let out = (dat.read() as u8) & 0x01;
+            rx |= out << i;
         }
 
-        // Read data from the card when the clock is high
-        thread::sleep(time::Duration::from_nanos(2000));
-        clk.set_high();
-        let out = (dat.read() as u8) & 0x01;
-        rx |= out << i;
+        //thread::sleep(time::Duration::from_nanos(2000));
+        // Set CMD to a known state of low
+        //clk.set_low();
+
+        // Wait for ACK, fail if timeout is triggered first
+        let timeout = time::Instant::now();
+        'timeout: loop {
+            if ack.is_low() {
+                output.push(rx);
+                break 'timeout;
+            }
+
+            if timeout.elapsed() > time::Duration::from_micros(1500) {
+                println!("timeout");
+                break 'transmit;
+            }
+        }
     }
 
-    //thread::sleep(time::Duration::from_nanos(2000));
-    // Set CMD to a known state of low
-    //clk.set_low();
-
-    // Wait for ACK, fail if timeout is triggered first
-    let timeout = time::Instant::now();
-    loop {
-        if ack.is_low() {
-            break;
-        }
-
-        if timeout.elapsed() > time::Duration::from_micros(1500) {
-            return Ok(None);
-        }
-    }
-
-    Ok(Some(rx))
+    Ok(output)
 }
