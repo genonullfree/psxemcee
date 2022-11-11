@@ -2,6 +2,9 @@ use rppal::gpio::Gpio;
 use std::error::Error;
 use std::{thread, time};
 
+mod errors;
+use errors::PSXError;
+
 /// Data GPIO pin
 const DAT_GPIO: u8 = 23;
 /// Command GPIO pin
@@ -69,7 +72,7 @@ pub fn calc_checksum(d: &[u8]) -> u8 {
 }
 
 /// Read all frames from the memory card
-pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
+pub fn read_all_frames() -> Result<Vec<Vec<u8>>, PSXError> {
     let mut data = Vec::<Vec<u8>>::new();
 
     // Read frames 0 through 1023
@@ -81,7 +84,7 @@ pub fn read_all_frames() -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
 }
 
 /// Read a specific frame
-pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
     let mut retry = 3;
 
     for i in 0..100 {
@@ -161,7 +164,7 @@ fn find_haystack_end(needle: &[u8], data: &[u8]) -> Option<usize> {
 }
 
 // TODO This needs an Option<&[u8]> for Command::Write frame data
-fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
+fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, PSXError> {
     let mut status = Vec::<u8>::new();
     // TODO: Fix this length
     let mut command = vec![0u8; 256];
@@ -191,7 +194,7 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
 }
 
 /// Send and receive many bytes of data, LSB first
-pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, PSXError> {
     let mut clk = Gpio::new()?.get(CLK_GPIO)?.into_output();
     let mut cmd = Gpio::new()?.get(CMD_GPIO)?.into_output();
     let dat = Gpio::new()?.get(DAT_GPIO)?.into_input_pullup();
