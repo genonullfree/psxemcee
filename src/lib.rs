@@ -1,5 +1,4 @@
 use rppal::gpio::Gpio;
-use std::error::Error;
 use std::{thread, time};
 
 mod errors;
@@ -44,8 +43,8 @@ const FRAME_STATUS_OFS: usize = 131;
 #[derive(Debug, PartialEq)]
 enum Command {
     Status,
-    Read,
-    Write(Vec<u8>),
+    Read(u16),
+    Write(u16, Vec<u8>),
 }
 
 /// Calculate the Command checksum.
@@ -78,13 +77,13 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
         // Try up to 3 times to read a frame, then give up
         if retry == 0 {
             println!("Err: retry limit reached!");
-            return Err(PSXError::ReadError);
+            return Err(PSXError::Read);
         } else {
             retry -= 1;
         }
 
         // Execute a Read command
-        let mut data = cmd_raw_frame(Command::Read, frame)?;
+        let mut data = cmd_raw_frame(Command::Read(frame))?;
         if data.len() <= 128 {
             println!("Err: len is too short: {}", data.len());
             continue;
@@ -146,22 +145,22 @@ fn find_haystack_end(needle: &[u8], data: &[u8]) -> Option<usize> {
 }
 
 // TODO This needs an Option<&[u8]> for Command::Write frame data
-fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, PSXError> {
-    let mut status = Vec::<u8>::new();
+fn cmd_raw_frame(com: Command) -> Result<Vec<u8>, PSXError> {
     // TODO: Fix this length
     let mut command = vec![0u8; 256];
 
     // Insert the proper command sequence
     match com {
         Command::Status => command[..2].copy_from_slice(&STATUS_CMD),
-        Command::Read => command[..2].copy_from_slice(&READ_CMD),
-        Command::Write(_) => command[..2].copy_from_slice(&WRITE_CMD),
+        Command::Read(frame) => {
+            command[..2].copy_from_slice(&READ_CMD);
+            command[4..6].copy_from_slice(&frame.to_be_bytes());
+        }
+        Command::Write(frame, _data) => {
+            command[..2].copy_from_slice(&WRITE_CMD);
+            command[4..6].copy_from_slice(&frame.to_be_bytes());
+        }
     };
-
-    // If Read or Write, copy the frame address to the command
-    if com != Command::Status {
-        command[4..6].copy_from_slice(&frame.to_be_bytes());
-    }
 
     // Trigger the Chip Select high then low to select the card
     let mut sel = Gpio::new()?.get(SEL_GPIO)?.into_output();
