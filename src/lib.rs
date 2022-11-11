@@ -45,21 +45,7 @@ const FRAME_STATUS_OFS: usize = 131;
 enum Command {
     Status,
     Read,
-    Write,
-}
-
-// TODO Implement errors
-
-fn cleanup_data(data: &[u8]) -> Vec<u8> {
-    let mut out = Vec::<u8>::new();
-
-    for (i, d) in data.iter().enumerate() {
-        if i + 1 >= data.len() {
-            break;
-        }
-        out.push(d << 1 | (data[i + 1] & 0x80u8) >> 7);
-    }
-    out
+    Write(Vec<u8>),
 }
 
 /// Calculate the Command checksum.
@@ -68,6 +54,7 @@ pub fn calc_checksum(d: &[u8]) -> u8 {
     for i in d.iter() {
         c ^= *i;
     }
+
     c
 }
 
@@ -87,16 +74,11 @@ pub fn read_all_frames() -> Result<Vec<Vec<u8>>, PSXError> {
 pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
     let mut retry = 3;
 
-    for i in 0..100 {
-        //let _ = send_receive(0xff);
-    }
-
     loop {
         // Try up to 3 times to read a frame, then give up
         if retry == 0 {
-            // TODO: Return an error value
             println!("Err: retry limit reached!");
-            return Ok(Vec::new());
+            return Err(PSXError::ReadError);
         } else {
             retry -= 1;
         }
@@ -173,7 +155,7 @@ fn cmd_raw_frame(com: Command, frame: u16) -> Result<Vec<u8>, PSXError> {
     match com {
         Command::Status => command[..2].copy_from_slice(&STATUS_CMD),
         Command::Read => command[..2].copy_from_slice(&READ_CMD),
-        Command::Write => command[..2].copy_from_slice(&WRITE_CMD),
+        Command::Write(_) => command[..2].copy_from_slice(&WRITE_CMD),
     };
 
     // If Read or Write, copy the frame address to the command
