@@ -14,8 +14,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             println!("rx invalid length: {}", frame.len());
             frame = frame[..128].to_vec();
         }
-        print!("\rRead frame: {}", i);
-        io::stdout().flush().unwrap();
+        println!("Read frame: {}", i);
         output.write_all(&frame)?;
     }
 

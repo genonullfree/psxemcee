@@ -100,7 +100,6 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
 
         // Execute a Read command
         let mut data = cmd_raw_frame(Command::Read, frame)?;
-        println!("{:02x?}", data);
         if data.len() <= 128 {
             println!("Err: len is too short: {}", data.len());
             continue;
@@ -109,7 +108,6 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, Box<dyn Error>> {
         // Remvoe the garbage byte
         data.remove(0);
 
-        println!("{:02x?}", data);
         // Find the beginning of the data
         let ofs = match find_haystack_end(&READ_RSP_START, &data) {
             Some(i) => i,
@@ -201,8 +199,6 @@ pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
 
     let mut output = Vec::<u8>::new();
 
-    // The clock should start high
-    //clk.set_high();
     thread::sleep(time::Duration::from_nanos(2000));
     'transmit: for transmit in input {
         // Byte for storing response data from DAT
@@ -225,10 +221,6 @@ pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
             rx |= out << i;
         }
 
-        //thread::sleep(time::Duration::from_nanos(2000));
-        // Set CMD to a known state of low
-        //clk.set_low();
-
         // Wait for ACK, fail if timeout is triggered first
         let timeout = time::Instant::now();
         'timeout: loop {
@@ -238,7 +230,6 @@ pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
             }
 
             if timeout.elapsed() > time::Duration::from_micros(1500) {
-                println!("timeout");
                 break 'transmit;
             }
         }
