@@ -1,7 +1,7 @@
 use rppal::gpio::Gpio;
 use std::{thread, time};
 
-mod errors;
+pub mod errors;
 use errors::PSXError;
 
 /// Data GPIO pin
@@ -35,9 +35,9 @@ const CHKSUM_FRAME_LEN: usize = 130;
 const CHKSUM_OFS: usize = 130;
 
 /// Command 'G'ood marker
-const FRAME_STATUS: u8 = 0x47;
+const FRAME_STATUS_GOOD: u8 = 0x47;
 /// Frame status offset
-const FRAME_STATUS_OFS: usize = 131;
+const FRAME_STATUS_GOOD_OFS: usize = 131;
 
 /// Available commands for PS1 memory cards
 #[derive(Debug, PartialEq)]
@@ -58,12 +58,12 @@ pub fn calc_checksum(d: &[u8]) -> u8 {
 }
 
 /// Read all frames from the memory card
-pub fn read_all_frames() -> Result<Vec<Vec<u8>>, PSXError> {
-    let mut data = Vec::<Vec<u8>>::new();
+pub fn read_all_frames() -> Result<Vec<u8>, PSXError> {
+    let mut data = Vec::<u8>::new();
 
     // Read frames 0 through 1023
     for i in 0..0x400 {
-        data.push(read_frame(i)?);
+        data.append(&mut read_frame(i)?);
     }
 
     Ok(data)
@@ -111,11 +111,11 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
         }
 
         // Verify we received a good 'G' status trailer
-        if data[ofs + FRAME_STATUS_OFS] != FRAME_STATUS {
+        if data[ofs + FRAME_STATUS_GOOD_OFS] != FRAME_STATUS_GOOD {
             println!(
                 "Err: trailer: {} expected: {}",
-                data[ofs + FRAME_STATUS_OFS],
-                FRAME_STATUS
+                data[ofs + FRAME_STATUS_GOOD_OFS],
+                FRAME_STATUS_GOOD
             );
             continue;
         }
@@ -127,7 +127,7 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
     }
 }
 
-// Seek to the end of a needle in the frame
+/// Seek to the end of a needle in the frame
 fn find_haystack_end(needle: &[u8], data: &[u8]) -> Option<usize> {
     let mut idx = 0;
     for (i, d) in data.iter().enumerate() {
@@ -144,7 +144,7 @@ fn find_haystack_end(needle: &[u8], data: &[u8]) -> Option<usize> {
     None
 }
 
-// TODO This needs an Option<&[u8]> for Command::Write frame data
+/// Generate a command buffer from the supplied Command
 fn cmd_raw_frame(com: Command) -> Result<Vec<u8>, PSXError> {
     // TODO: Fix this length
     let mut command = vec![0u8; 256];
@@ -156,9 +156,13 @@ fn cmd_raw_frame(com: Command) -> Result<Vec<u8>, PSXError> {
             command[..2].copy_from_slice(&READ_CMD);
             command[4..6].copy_from_slice(&frame.to_be_bytes());
         }
-        Command::Write(frame, _data) => {
+        Command::Write(frame, data) => {
             command[..2].copy_from_slice(&WRITE_CMD);
             command[4..6].copy_from_slice(&frame.to_be_bytes());
+            if data.len() != 128 {
+                return Err(PSXError::WriteLen);
+            }
+            // TODO: Append the data and calculate the checksum
         }
     };
 
@@ -183,7 +187,6 @@ pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, PSXError> {
 
     let mut output = Vec::<u8>::new();
 
-    thread::sleep(time::Duration::from_nanos(2000));
     'transmit: for transmit in input {
         // Byte for storing response data from DAT
         let mut rx: u8 = 0;
@@ -210,10 +213,12 @@ pub fn send_receive(input: &[u8]) -> Result<Vec<u8>, PSXError> {
         'timeout: loop {
             if ack.is_low() {
                 output.push(rx);
+                // Exit the ACK loop and transmit next byte
                 break 'timeout;
             }
 
             if timeout.elapsed() > time::Duration::from_micros(1500) {
+                // Exit the transmit loop and return any data we have already received
                 break 'transmit;
             }
         }
