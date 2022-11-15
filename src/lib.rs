@@ -69,6 +69,16 @@ pub fn read_all_frames() -> Result<Vec<u8>, PSXError> {
     Ok(data)
 }
 
+/// Read a certain number of frames
+pub fn read_at(offset: u16, length: u16) -> Result<Vec<u8>, PSXError> {
+    let mut output = Vec::<u8>::new();
+    for i in 0..length {
+        output.append(&mut read_frame(offset + i as u16)?);
+    }
+
+    Ok(output)
+}
+
 /// Read a specific frame
 pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
     let mut retry = 3;

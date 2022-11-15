@@ -1,10 +1,9 @@
-use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
 use clap::Parser;
-use psxmcrw::{errors::PSXError, read_all_frames, read_frame};
+use psxmcrw::{errors::PSXError, read_all_frames, read_at};
 
 #[derive(Clone, Debug, Parser, PartialEq, Eq)]
 pub enum Cmd {
@@ -52,8 +51,15 @@ fn main() -> Result<(), PSXError> {
     // Process arguments
     let opt = Opt::parse();
 
-    let mut output: File = File::create(opt.file)?;
+    // Open file for reading or writing, depending on command
+    let mut file: File = match opt.cmd {
+        Cmd::ReadAll | Cmd::ReadFrame(_) | Cmd::ReadBlock(_) | Cmd::Status => {
+            File::create(opt.file)?
+        }
+        Cmd::WriteAll | Cmd::WriteFrame(_) | Cmd::WriteBlock(_) => File::open(opt.file)?,
+    };
 
+    // Execute the proper command
     let out = match opt.cmd {
         Cmd::ReadAll => read_all_frames(),
         Cmd::ReadFrame(opt) => read_at(frame_ofs(opt.offset)?, 1),
@@ -64,10 +70,19 @@ fn main() -> Result<(), PSXError> {
         }
     };
 
+    // If len = 0 and no error, write was successful
+    if let Ok(ref o) = out {
+        if o.len() == 0 {
+            println!("Memory card write complete!");
+            return Ok(());
+        }
+    };
+
+    // Write output or print error
     match out {
         Ok(o) => {
             println!("Memory card read complete!");
-            output.write_all(&o)?;
+            file.write_all(&o)?;
         }
         Err(e) => {
             println!("Error: {:?}", e);
@@ -92,14 +107,4 @@ fn block_ofs(offset: u16) -> Result<u16, PSXError> {
         return Err(PSXError::BlockOfs);
     }
     Ok(offset * 64)
-}
-
-fn read_at(offset: u16, length: u16) -> Result<Vec<u8>, PSXError> {
-    let mut output = Vec::<u8>::new();
-    for i in 0..length {
-        println!("Read frame: {}", offset + i as u16);
-        output.append(&mut read_frame(offset + i as u16)?);
-    }
-
-    Ok(output)
 }
