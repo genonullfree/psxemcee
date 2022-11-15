@@ -32,10 +32,6 @@ const CHKSUM_OFS: usize = 130;
 
 /// Command 'G'ood marker
 const FRAME_STATUS_GOOD: u8 = 0x47;
-/// Write Command Bad Checksum ('N')
-const FRAME_STATUS_BAD_CHECKSUM: u8 = 0x4e;
-/// Write Command Bad Sector
-const FRAME_STATUS_BAD_SECTOR: u8 = 0xff;
 /// Frame status offset
 const FRAME_STATUS_GOOD_OFS: usize = 131;
 
@@ -157,53 +153,11 @@ pub fn write_at(offset: u16, length: u16, data: Vec<u8>) -> Result<Vec<u8>, PSXE
 }
 
 /// Write a specific frame
-pub fn write_frame(frame: u16, data: Vec<u8>) -> Result<Vec<u8>, PSXError> {
-    let mut retry = 3;
+pub fn write_frame(frame: u16, data: Vec<u8>) -> Result<(), PSXError> {
+    // Execute a Write command
+    let _ = cmd_raw_frame(Command::Write(frame, &data))?;
 
-    loop {
-        // Try up to 3 times to read a frame, then give up
-        if retry == 0 {
-            println!("Err: retry limit reached!");
-            return Err(PSXError::Write);
-        } else {
-            retry -= 1;
-        }
-
-        // Execute a Read command
-        let data = cmd_raw_frame(Command::Write(frame, &data))?;
-        println!("DEBUG RESPONSE: {:02x?}", data);
-        // Find the beginning of the data
-        let ofs = match find_haystack_end(&COMMAND_ACK, &data) {
-            Some(i) => i,
-            None => {
-                println!("Err: Couldnt find the Command Ack");
-                continue;
-            }
-        };
-
-        if data.len() <= ofs + 1 {
-            println!("Write response not long enough");
-            continue;
-        }
-
-        match data[ofs + 1] {
-            FRAME_STATUS_GOOD => break,
-            FRAME_STATUS_BAD_CHECKSUM => {
-                println!("Received Bad Checksum");
-                continue;
-            }
-            FRAME_STATUS_BAD_SECTOR => {
-                println!("Received Bad Sector");
-                continue;
-            }
-            n => {
-                println!("Received unknown response code: {:02x}", n);
-                continue;
-            }
-        };
-    }
-
-    Ok(Vec::<u8>::new())
+    Ok(())
 }
 
 /// Seek to the end of a needle in the frame
@@ -241,9 +195,8 @@ fn cmd_raw_frame(com: Command) -> Result<Vec<u8>, PSXError> {
             if data.len() != 128 {
                 return Err(PSXError::WriteLen);
             }
-            command[6..134].copy_from_slice(&data);
+            command[6..134].copy_from_slice(data);
             command[134] = calc_checksum(&command[4..CHKSUM_FRAME_LEN]);
-            println!("DEBUG CMD: {:02x?}", command);
         }
     };
 

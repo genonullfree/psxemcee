@@ -70,6 +70,11 @@ fn main() -> Result<(), PSXError> {
             file.read_exact(&mut buf)?;
             write_at(frame_ofs(opt.offset)?, 1, buf.to_vec())
         }
+        Cmd::WriteBlock(opt) => {
+            let mut buf = [0u8; 128 * 64];
+            file.read_exact(&mut buf)?;
+            write_at(block_ofs(opt.offset)?, 64, buf.to_vec())
+        }
         c => {
             println!("Command {:?} not implemented", c);
             return Ok(());
@@ -78,7 +83,7 @@ fn main() -> Result<(), PSXError> {
 
     // If len = 0 and no error, write was successful
     if let Ok(ref o) = out {
-        if o.len() == 0 {
+        if o.is_empty() {
             println!("Memory card write complete!");
             return Ok(());
         }
