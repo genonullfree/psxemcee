@@ -1,9 +1,9 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
-use psxmcrw::{errors::PSXError, read_all_frames, read_at};
+use psxmcrw::{errors::PSXError, get_status, read_all_frames, read_at, write_at};
 
 #[derive(Clone, Debug, Parser, PartialEq, Eq)]
 pub enum Cmd {
@@ -64,6 +64,12 @@ fn main() -> Result<(), PSXError> {
         Cmd::ReadAll => read_all_frames(),
         Cmd::ReadFrame(opt) => read_at(frame_ofs(opt.offset)?, 1),
         Cmd::ReadBlock(opt) => read_at(block_ofs(opt.offset)?, 64),
+        Cmd::Status => get_status(),
+        Cmd::WriteFrame(opt) => {
+            let mut buf = [0u8; 128];
+            file.read_exact(&mut buf)?;
+            write_at(frame_ofs(opt.offset)?, 1, buf.to_vec())
+        }
         c => {
             println!("Command {:?} not implemented", c);
             return Ok(());

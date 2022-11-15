@@ -22,12 +22,8 @@ const READ_CMD: [u8; 2] = [0x81, 0x52];
 /// Write command sequence
 const WRITE_CMD: [u8; 2] = [0x81, 0x57];
 
-/// Header for status response
-const STATUS_RSP_START: [u8; 4] = [0x5a, 0x5d, 0x5c, 0x5d];
-/// Header for read response
-const READ_RSP_START: [u8; 2] = [0x5c, 0x5d];
-/// Header for write response
-const WRITE_RSP_START: [u8; 2] = [0x5a, 0x5d];
+/// Receive Command Acknowledge
+const COMMAND_ACK: [u8; 2] = [0x5c, 0x5d];
 
 /// Length of frame for checksum calculation
 const CHKSUM_FRAME_LEN: usize = 130;
@@ -36,15 +32,19 @@ const CHKSUM_OFS: usize = 130;
 
 /// Command 'G'ood marker
 const FRAME_STATUS_GOOD: u8 = 0x47;
+/// Write Command Bad Checksum ('N')
+const FRAME_STATUS_BAD_CHECKSUM: u8 = 0x4e;
+/// Write Command Bad Sector
+const FRAME_STATUS_BAD_SECTOR: u8 = 0xff;
 /// Frame status offset
 const FRAME_STATUS_GOOD_OFS: usize = 131;
 
 /// Available commands for PS1 memory cards
 #[derive(Debug, PartialEq)]
-enum Command {
+enum Command<'a> {
     Status,
     Read(u16),
-    Write(u16, Vec<u8>),
+    Write(u16, &'a [u8]),
 }
 
 /// Calculate the Command checksum.
@@ -103,7 +103,7 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
         data.remove(0);
 
         // Find the beginning of the data
-        let ofs = match find_haystack_end(&READ_RSP_START, &data) {
+        let ofs = match find_haystack_end(&COMMAND_ACK, &data) {
             Some(i) => i,
             None => {
                 println!("Err: Couldnt find the response start");
@@ -135,6 +135,75 @@ pub fn read_frame(frame: u16) -> Result<Vec<u8>, PSXError> {
 
         return Ok(data);
     }
+}
+
+/// Read the status from the memory card. Note: This is only supported by official Sony memory cards
+pub fn get_status() -> Result<Vec<u8>, PSXError> {
+    cmd_raw_frame(Command::Status)
+}
+
+/// Write a certain number of frames
+pub fn write_at(offset: u16, length: u16, data: Vec<u8>) -> Result<Vec<u8>, PSXError> {
+    if data.len() % 128 != 0 || data.len() / 128 != length.into() {
+        return Err(PSXError::WriteLen);
+    }
+
+    for (i, d) in data.chunks(128).enumerate() {
+        write_frame(offset + i as u16, d.to_vec())?;
+    }
+
+    // Return empty vec
+    Ok(Vec::<u8>::new())
+}
+
+/// Write a specific frame
+pub fn write_frame(frame: u16, data: Vec<u8>) -> Result<Vec<u8>, PSXError> {
+    let mut retry = 3;
+
+    loop {
+        // Try up to 3 times to read a frame, then give up
+        if retry == 0 {
+            println!("Err: retry limit reached!");
+            return Err(PSXError::Write);
+        } else {
+            retry -= 1;
+        }
+
+        // Execute a Read command
+        let data = cmd_raw_frame(Command::Write(frame, &data))?;
+        println!("DEBUG RESPONSE: {:02x?}", data);
+        // Find the beginning of the data
+        let ofs = match find_haystack_end(&COMMAND_ACK, &data) {
+            Some(i) => i,
+            None => {
+                println!("Err: Couldnt find the Command Ack");
+                continue;
+            }
+        };
+
+        if data.len() <= ofs + 1 {
+            println!("Write response not long enough");
+            continue;
+        }
+
+        match data[ofs + 1] {
+            FRAME_STATUS_GOOD => break,
+            FRAME_STATUS_BAD_CHECKSUM => {
+                println!("Received Bad Checksum");
+                continue;
+            }
+            FRAME_STATUS_BAD_SECTOR => {
+                println!("Received Bad Sector");
+                continue;
+            }
+            n => {
+                println!("Received unknown response code: {:02x}", n);
+                continue;
+            }
+        };
+    }
+
+    Ok(Vec::<u8>::new())
 }
 
 /// Seek to the end of a needle in the frame
@@ -172,7 +241,9 @@ fn cmd_raw_frame(com: Command) -> Result<Vec<u8>, PSXError> {
             if data.len() != 128 {
                 return Err(PSXError::WriteLen);
             }
-            // TODO: Append the data and calculate the checksum
+            command[6..134].copy_from_slice(&data);
+            command[134] = calc_checksum(&command[4..CHKSUM_FRAME_LEN]);
+            println!("DEBUG CMD: {:02x?}", command);
         }
     };
 
