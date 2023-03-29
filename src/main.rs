@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
-use psxmcrw::{errors::PSXError, get_status, read_all_frames, read_at, write_at};
+use psxemcee::{errors::PSXError, get_status, read_all_frames, read_at, write_at};
 
 #[derive(Clone, Debug, Parser, PartialEq, Eq)]
 pub enum Cmd {

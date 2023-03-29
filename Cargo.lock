@@ -311,7 +311,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "psxmcrw"
+name = "psxemcee"
 version = "0.1.0"
 dependencies = [
  "clap",
